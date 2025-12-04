@@ -30,7 +30,7 @@ export function apply(ctx: Context, config: Config) {
 
       // 2. 状态检查
       if (mcProcess) {
-        return '别吵，服务器已经在运行了，PID: ' + mcProcess.pid
+        return '别吵别吵，服务器已经在运行了，PID: ' + mcProcess.pid
       }
 
       session.send('正在启动服务器……请等待1~2分钟……')
@@ -84,12 +84,10 @@ export function apply(ctx: Context, config: Config) {
       }
 
       // 3. 发送停止指令
-      session.send('正在向服务端发送 stop 指令……')
-      
       try {
         // 向服务端虚拟终端输入 stop 并回车
         mcProcess.stdin?.write('stop\n')
-        return '指令发过去了，关不关的掉听天由命吧~'
+        return 'stop指令发过去了，关不关的掉听天由命吧~'
       } catch (e) {
         logger.error(e)
         return '写入指令失败: ' + e.message
