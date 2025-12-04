@@ -1,6 +1,11 @@
 {
   "name": "koishi-plugin-mc-manager",
-  "description": "",
+  "koishi": {
+    "description": {
+      "en": "A easy plugin to start up local minecraft server.",
+      "zh": "一个用于启动本地minecraft服务器的简单插件"
+    }
+  },
   "version": "0.0.1",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
@@ -18,5 +23,8 @@
   "devDependencies": {},
   "peerDependencies": {
     "koishi": "^4.18.7"
-  }
+  },
+  "contributors": [
+    "ProcyonNAN <3189960265@qq.com>"
+  ]
 }
