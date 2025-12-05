@@ -8,15 +8,15 @@ export const name = 'mc-manager'
 export interface Config {
   serverPath: string
   batName: string
-  allowedGroup: string
-  adminId: string
+  allowedGroups: string[]
+  adminIds: string[]
 }
 
 export const Config: Schema<Config> = Schema.object({
   serverPath: Schema.string().description('服务端根目录(绝对路径)').required(),
   batName: Schema.string().default('run.bat').description('启动脚本名称'),
-  allowedGroup: Schema.string().description('允许控制的群号').required(),
-  adminId: Schema.string().description('允许控制的用户账号').required(),
+  allowedGroups: Schema.array(String).description('允许控制的群组').required(),
+  adminIds: Schema.array(String).description('允许控制的用户账号').required(),
 })
 
 export function apply(ctx: Context, config: Config) {
@@ -26,7 +26,9 @@ export function apply(ctx: Context, config: Config) {
 
   // 权限检查
   const checkPermission = (session: any) => {
-    return (session.guildId === config.allowedGroup) || (session.userId === config.adminId)
+    const isGroupAllowed = config.allowedGroups.includes(session.guildId)
+    const isUserAllowed = config.adminIds.includes(session.userid)
+    return isGroupAllowed || isUserAllowed
   }
 
   // 开服指令
