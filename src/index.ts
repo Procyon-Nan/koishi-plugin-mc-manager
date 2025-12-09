@@ -1,5 +1,5 @@
 import { Context, Schema } from 'koishi'
-import { spawn, ChildProcess } from 'child_process'
+import { spawn, ChildProcess, exec } from 'child_process'
 import * as path from 'path'
 
 export const name = 'mc-manager'
@@ -27,7 +27,7 @@ export function apply(ctx: Context, config: Config) {
   // 权限检查
   const checkPermission = (session: any) => {
     const isGroupAllowed = config.allowedGroups.includes(session.guildId)
-    const isUserAllowed = config.adminIds.includes(session.userid)
+    const isUserAllowed = config.adminIds.includes(session.userId)
     return isGroupAllowed || isUserAllowed
   }
 
@@ -71,7 +71,7 @@ export function apply(ctx: Context, config: Config) {
         mcProcess.on('close', (code) => {
           logger.info(`服务端进程已退出，代码: ${code}`)
           mcProcess = null
-          session.send(`看来服务器已经似了有一会儿了……(Exit Code: ${code})`)
+          session.send(`服务器似了啦，都你害的(Exit Code: ${code})`)
         })
 
       } catch (e) {
@@ -111,18 +111,27 @@ export function apply(ctx: Context, config: Config) {
         return '你没有控制服务器的权限！'
 
       // 状态检查
-      if (!mcProcess) {
-        return '服务器未运行，你杀牛魔'
+      if (!mcProcess || mcProcess.killed) {
+        return '服务器未运行，或者已经似了'
       }
+
+      const currentPid = mcProcess.pid
 
       // 杀死服务器进程
       try {
-        mcProcess.kill()
-        mcProcess = null
-        return '已对服务端进程执行处决！'
-      } catch(e) {
+        exec(`taskkill /pid ${currentPid} /T /F`, (error, stdout, stderr) => {
+          if (error) {
+            logger.error(`杀死服务端进程失败: ${error.message}`)
+            session.send(`处决失败！系统返回错误：${error.message}`)
+          } else {
+            logger.info('已执行 taskkill，等待进程树清理……')
+            session.send('处决成功！正在清理进程树。')
+          }
+        })
+        return
+      } catch (e) {
         logger.error(e)
-        return '纳尼，居然杀不掉'
+        return '纳尼，居然杀不掉？'
       }
     })
 }
