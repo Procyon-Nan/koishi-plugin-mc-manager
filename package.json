@@ -6,7 +6,7 @@
       "zh": "一个用于启动本地minecraft服务器的简单插件"
     }
   },
-  "version": "0.0.2",
+  "version": "0.0.3",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
   "files": [
@@ -26,5 +26,9 @@
   },
   "contributors": [
     "ProcyonNAN <3189960265@qq.com>"
-  ]
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Procyon-Nan/koishi-plugin-mc-manager.git"
+  }
 }
