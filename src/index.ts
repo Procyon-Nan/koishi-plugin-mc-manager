@@ -19,12 +19,16 @@ export const Config: Schema<Config> = Schema.object({
   adminIds: Schema.array(String).description('允许控制的用户账号').required(),
 })
 
+// 延时函数
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 export function apply(ctx: Context, config: Config) {
   // 此处变量存在于插件生命周期内，用于持有服务端进程
   let mcProcess: ChildProcess | null = null
+  let isCapturing = false
+  let captureBuffer: string[] = []
   const logger = ctx.logger('MC-Server')
 
-  // 权限检查
+  // 功能：权限检查
   const checkPermission = (session: any) => {
     const isGroupAllowed = config.allowedGroups.includes(session.guildId)
     const isUserAllowed = config.adminIds.includes(session.userId)
@@ -59,7 +63,12 @@ export function apply(ctx: Context, config: Config) {
         // 监听服务端日志输出
         mcProcess.stdout?.on('data', (data) => {
           const log = data.toString().trim()
-          if (log) logger.info(log)
+          if (log) {
+            logger.info(log)
+            if (isCapturing) {
+              captureBuffer.push(log)
+            }
+          }
         })
 
         // 监听错误流
@@ -71,7 +80,7 @@ export function apply(ctx: Context, config: Config) {
         mcProcess.on('close', (code) => {
           logger.info(`服务端进程已退出，代码: ${code}`)
           mcProcess = null
-          session.send(`服务器似了啦，都你害的(Exit Code: ${code})`)
+          session.send(`服务器似了啦，都你害的`)
         })
 
       } catch (e) {
@@ -104,8 +113,8 @@ export function apply(ctx: Context, config: Config) {
     })
 
   // 指令：向服务器发送命令
-    ctx.command('所长，执行 <command:text>', '向服务器发送控制台命令')
-    .action(async ({ session }, command) => { 
+  ctx.command('所长，执行 <command:text>', '向服务器发送控制台命令')
+    .action(async ({ session }, command) => {
       // 权限校验
       if (!checkPermission(session))
         return '你没有控制服务器的权限！'
@@ -120,11 +129,22 @@ export function apply(ctx: Context, config: Config) {
         return '你执行个寂寞'
       }
 
-      // 向服务端发送命令
+      // 向服务端控制台发送命令
       try {
+        isCapturing = true                        // 开始捕获输出
+        captureBuffer = []
         mcProcess.stdin?.write(command + '\n')
-        return '命令已发送'
-      } catch (e) {
+        await sleep(500)
+        isCapturing = false                       // 停止捕获输出   
+        if (captureBuffer.length === 0) {
+          return '命令已发送，无输出'
+        }
+        const output = captureBuffer.length > 10
+          ? captureBuffer.slice(0, 10).join('\n（输出过长，已截断）')
+          : captureBuffer.join('\n')
+        return output
+      } catch (e) {                               // 停止捕获输出  
+        isCapturing = false
         logger.error(e)
         return '命令发送失败: ' + e.message
       }
