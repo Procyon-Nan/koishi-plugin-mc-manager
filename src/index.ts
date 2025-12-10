@@ -31,7 +31,7 @@ export function apply(ctx: Context, config: Config) {
     return isGroupAllowed || isUserAllowed
   }
 
-  // 开服指令
+  // 指令：开启服务器
   ctx.command('所长开服', '启动MC服务器')
     .action(async ({ session }) => {
       // 权限检查
@@ -81,7 +81,7 @@ export function apply(ctx: Context, config: Config) {
       }
     })
 
-  // 关服指令
+  // 指令：关闭服务器
   ctx.command('所长关服', '关闭MC服务器')
     .action(async ({ session }) => {
       // 权限校验
@@ -103,7 +103,34 @@ export function apply(ctx: Context, config: Config) {
       }
     })
 
-  // 强行杀死服务器进程指令
+  // 指令：向服务器发送命令
+    ctx.command('所长，执行 <command:text>', '向服务器发送控制台命令')
+    .action(async ({ session }, command) => { 
+      // 权限校验
+      if (!checkPermission(session))
+        return '你没有控制服务器的权限！'
+
+      // 状态检查
+      if (!mcProcess) {
+        return '服务器都没开，执行个鬼'
+      }
+
+      // 命令参数检查
+      if (!command) {
+        return '你执行个寂寞'
+      }
+
+      // 向服务端发送命令
+      try {
+        mcProcess.stdin?.write(command + '\n')
+        return '命令已发送'
+      } catch (e) {
+        logger.error(e)
+        return '命令发送失败: ' + e.message
+      }
+    })
+
+  // 指令：强制杀死服务器进程
   ctx.command('所长，把服杀了', '强制杀死服务器进程')
     .action(async ({ session }) => {
       // 权限校验
