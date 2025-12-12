@@ -16,9 +16,10 @@
   "license": "MIT",
   "scripts": {},
   "keywords": [
-    "minecraft",
+    "chatbot",
     "koishi",
-    "plugin"
+    "plugin",
+    "minecraft"
   ],
   "devDependencies": {},
   "peerDependencies": {
