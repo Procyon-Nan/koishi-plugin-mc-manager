@@ -1,6 +1,7 @@
 import { Context, Schema } from 'koishi'
 import { spawn, ChildProcess, exec } from 'child_process'
 import * as path from 'path'
+import { TextDecoder } from 'util'
 
 export const name = 'mc-manager'
 
@@ -28,6 +29,7 @@ export function apply(ctx: Context, config: Config) {
   let captureBuffer: string[] = []
 
   const logger = ctx.logger('MC-Server')
+  const decoder = new TextDecoder('utf-8')
   // 日志清洗工具
   const cleanLog = (log: string): string | null => {
     // 匹配标准控制台输出格式
@@ -97,7 +99,7 @@ export function apply(ctx: Context, config: Config) {
 
         // 监听服务端日志输出
         mcProcess.stdout?.on('data', (data) => {
-          const chunk = data.toString().trim()
+          const chunk = decoder.decode(data, { stream: true }).trim()
           const lines = chunk.split('\n')
           for (const line of lines) {
             const rawLog = line.trim()
