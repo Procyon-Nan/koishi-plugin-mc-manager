@@ -36,7 +36,33 @@ export function apply(ctx: Context, config: Config) {
     if (match && match[1]) {
       return match[1].trim()
     }
+    return log
+  }
+
+  // 聊天信息检测
+  const parseChat = (log: string) => {
+    const chatRegex = /]:\s*<([^>]+)>\s*(.*)$/
+    const match = log.match(chatRegex)
+    if (match) {
+      return {
+        player: match[1],
+        message: match[2]
+      }
+    }
     return null
+  }
+
+  // 聊天信息广播
+  const broadcastToGroup = async (message: string) => {
+    for (const bot of ctx.bots) {
+      for (const groupId of config.allowedGroups) {
+        try {
+          await bot.sendMessage(groupId, message)
+        } catch (e) {
+          logger.warn(`转发消息到群组 ${groupId} 失败: ${e.message}`)
+        }
+      }
+    }
   }
 
   // 功能：权限检查
@@ -71,11 +97,24 @@ export function apply(ctx: Context, config: Config) {
 
         // 监听服务端日志输出
         mcProcess.stdout?.on('data', (data) => {
-          const rawlog = data.toString().trim()
-          if (rawlog) {
-            logger.info(rawlog)
-            if (isCapturing) {
-              const cleanContent = cleanLog(rawlog)
+          const chunk = data.toString().trim()
+          const lines = chunk.split('\n')
+          for (const line of lines) {
+            const rawLog = line.trim()
+            if (!rawLog) continue
+
+            // 记录日志到后台
+            logger.info(rawLog)
+
+            // 检测聊天信息
+            if (!isCapturing) {
+              const chat = parseChat(rawLog)
+              if (chat) {
+                const msg = `[MC] ${chat.player}: ${chat.message}`
+                broadcastToGroup(msg)
+              }
+            } else {
+              const cleanContent = cleanLog(rawLog)
               if (cleanContent) {
                 captureBuffer.push(cleanContent)
               }
@@ -92,7 +131,7 @@ export function apply(ctx: Context, config: Config) {
         mcProcess.on('close', (code) => {
           logger.info(`服务端进程已退出，代码: ${code}`)
           mcProcess = null
-          session.send(`服务器似了啦，都你害的`)
+          broadcastToGroup(`服务器似了啦，都你害的`)
         })
 
       } catch (e) {
@@ -150,27 +189,27 @@ export function apply(ctx: Context, config: Config) {
           return '命令已发送，无输出'
         }
         const output = captureBuffer.join('\n')
-        return output
+        return output.length > 300 ? output.substring(0, 300) + '\n...（消息过长，已截断）' : output
       } catch (e) {                               // 停止捕获输出  
         isCapturing = false
         logger.error(e)
         return '命令发送失败: ' + e.message
       }
     })
-  
+
   // 指令：向服务器发送信息
   ctx.command('say <content:text>', '向服务器发送信息')
     .action(async ({ session }, content) => {
       // 权限校验
-      if (!checkPermission(session)) 
+      if (!checkPermission(session))
         return '你没有发送信息的权限！'
 
       // 状态检查
-      if (!mcProcess) 
+      if (!mcProcess)
         return '服务器都没开，你说你🐎呢'
 
       // 内容检查
-      if (!content) 
+      if (!content)
         return '你说你🐎呢'
 
       try {
