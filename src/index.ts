@@ -59,8 +59,6 @@ export function apply(ctx: Context, config: Config) {
       }
 
       session.send('正在启动服务器……请等待1~2分钟……')
-
-      // 启动服务端进程
       try {
         // spawn 允许保持与子进程的连接
         mcProcess = spawn(config.batName, [], {
@@ -116,7 +114,6 @@ export function apply(ctx: Context, config: Config) {
         return '服务器都没开你关什么……'
       }
 
-      // 停止服务端
       try {
         mcProcess.stdin?.write('stop\n')
         return 'stop指令发过去了，关不关的掉听天由命吧~'
@@ -127,7 +124,7 @@ export function apply(ctx: Context, config: Config) {
     })
 
   // 指令：向服务器发送命令
-  ctx.command('所长sudo <command:text>', '向服务器发送控制台命令')
+  ctx.command('sudo <command:text>', '向服务器发送控制台命令')
     .action(async ({ session }, command) => {
       // 权限校验
       if (!checkPermission(session))
@@ -143,7 +140,6 @@ export function apply(ctx: Context, config: Config) {
         return '你sudo你🐎呢'
       }
 
-      // 向服务端控制台发送命令
       try {
         isCapturing = true                        // 开始捕获输出
         captureBuffer = []
@@ -161,6 +157,31 @@ export function apply(ctx: Context, config: Config) {
         return '命令发送失败: ' + e.message
       }
     })
+  
+  // 指令：向服务器发送信息
+  ctx.command('say <content:text>', '向服务器发送信息')
+    .action(async ({ session }, content) => {
+      // 权限校验
+      if (!checkPermission(session)) 
+        return '你没有发送信息的权限！'
+
+      // 状态检查
+      if (!mcProcess) 
+        return '服务器都没开，你说你🐎呢'
+
+      // 内容检查
+      if (!content) 
+        return '你说你🐎呢'
+
+      try {
+        const senderName = session.username || session.userId
+        mcProcess.stdin?.write(`say ${senderName}：${content}\n`)
+        return null
+      } catch (e) {
+        logger.error(e)
+        return '发送失败: ' + e.message
+      }
+    })
 
   // 指令：强制杀死服务器进程
   ctx.command('所长，把服杀了', '强制杀死服务器进程')
@@ -175,8 +196,6 @@ export function apply(ctx: Context, config: Config) {
       }
 
       const currentPid = mcProcess.pid
-
-      // 杀死服务器进程
       try {
         exec(`taskkill /pid ${currentPid} /T /F`, (error, stdout, stderr) => {
           if (error) {
