@@ -29,7 +29,7 @@ export function apply(ctx: Context, config: Config) {
   let captureBuffer: string[] = []
 
   const logger = ctx.logger('MC-Server')
-  const decoder = new TextDecoder('utf-8')
+  const decoder = new TextDecoder('gbk')
   // 日志清洗工具
   const cleanLog = (log: string): string | null => {
     // 匹配标准控制台输出格式
