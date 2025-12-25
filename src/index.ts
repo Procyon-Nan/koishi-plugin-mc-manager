@@ -11,6 +11,7 @@ export interface Config {
   batName: string
   allowedGroups: string[]
   adminIds: string[]
+  encoding: 'utf-8' | 'gbk'
 }
 
 export const Config: Schema<Config> = Schema.object({
@@ -18,6 +19,7 @@ export const Config: Schema<Config> = Schema.object({
   batName: Schema.string().default('run.bat').description('启动脚本名称'),
   allowedGroups: Schema.array(String).description('允许控制的群组').required(),
   adminIds: Schema.array(String).description('允许控制的用户账号').required(),
+  encoding: Schema.union(['utf-8', 'gbk']).description('服务端日志编码'),
 })
 
 // 延时函数
@@ -29,7 +31,7 @@ export function apply(ctx: Context, config: Config) {
   let captureBuffer: string[] = []
 
   const logger = ctx.logger('MC-Server')
-  const decoder = new TextDecoder('gbk')
+  const decoder = new TextDecoder(config.encoding)
   // 日志清洗工具
   const cleanLog = (log: string): string | null => {
     // 匹配标准控制台输出格式
