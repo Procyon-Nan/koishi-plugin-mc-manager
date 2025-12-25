@@ -1,13 +1,13 @@
 import { Context, Schema } from 'koishi'
 import { spawn, ChildProcess, exec } from 'child_process'
-import * as path from 'path'
+import * as fs from 'fs'
 import { TextDecoder } from 'util'
 
 export const name = 'mc-manager'
 
 // 网页控制台配置项
 export interface Config {
-  serverPath: string
+  serverPaths: Record<string, string>
   batName: string
   allowedGroups: string[]
   adminIds: string[]
@@ -15,7 +15,7 @@ export interface Config {
 }
 
 export const Config: Schema<Config> = Schema.object({
-  serverPath: Schema.string().description('服务端根目录(绝对路径)').required(),
+  serverPaths: Schema.dict(String).role('table').description('服务端名称与目录（绝对路径）').required(),
   batName: Schema.string().default('run.bat').description('启动脚本名称'),
   allowedGroups: Schema.array(String).description('允许控制的群组').required(),
   adminIds: Schema.array(String).description('允许控制的用户账号').required(),
@@ -29,6 +29,7 @@ export function apply(ctx: Context, config: Config) {
   let mcProcess: ChildProcess | null = null
   let isCapturing = false
   let captureBuffer: string[] = []
+  let currentServerName = Object.keys(config.serverPaths)[0] || ''
 
   const logger = ctx.logger('MC-Server')
   const decoder = new TextDecoder(config.encoding)
@@ -76,6 +77,34 @@ export function apply(ctx: Context, config: Config) {
     return isGroupAllowed || isUserAllowed
   }
 
+  // 指令：指定服务端
+  ctx.command('setServer <name:string>', '指定当前操作的服务端')
+    .action(async ({ session }, name) => {
+      // 权限检查
+      if (!checkPermission(session))
+        return '你没有控制服务器的权限！'
+
+      // 状态检查
+      if (mcProcess)
+        return '服务器开着呢，你切牛魔'
+
+      // 检查服务端名称
+      if (!Object.keys(config.serverPaths).includes(name) || !name) {
+        const available = Object.keys(config.serverPaths).join(' | ')
+        return '爬！服务器列表里只有\n' + available
+      }
+      const targetPath = config.serverPaths[name]
+      try {
+        if (!targetPath || !fs.existsSync(targetPath) || !fs.statSync(targetPath).isDirectory()) {
+          return `服务器路径"${targetPath}"不可用！"`
+        }
+      } catch (e) {
+        return `服务器路径"${targetPath}"不可用！`
+      }
+      currentServerName = name
+      return '当前服务器已切换为 ' + name + '\n' + targetPath
+    })
+
   // 指令：开启服务器
   ctx.command('所长开服', '启动MC服务器')
     .action(async ({ session }) => {
@@ -88,11 +117,17 @@ export function apply(ctx: Context, config: Config) {
         return '别吵别吵，服务器已经在运行了，PID: ' + mcProcess.pid
       }
 
+      // 检查服务端名称
+      if (!currentServerName) {
+        return '未指定服务端！'
+      }
+
+      const targetPath = config.serverPaths[currentServerName]
       session.send('正在启动服务器……请等待1~2分钟……')
       try {
         // spawn 允许保持与子进程的连接
         mcProcess = spawn(config.batName, [], {
-          cwd: config.serverPath,                 // 设置工作目录
+          cwd: targetPath,                        // 设置工作目录
           shell: true,                            // 允许运行bat脚本
           stdio: 'pipe'                           // 启用输入输出流
         })
