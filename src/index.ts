@@ -123,7 +123,7 @@ export function apply(ctx: Context, config: Config) {
       }
 
       const targetPath = config.serverPaths[currentServerName]
-      session.send('正在启动服务器……请等待1~2分钟……')
+      session.send(`正在启动${currentServerName}，请等待1~2分钟……`)
       try {
         // spawn 允许保持与子进程的连接
         mcProcess = spawn(config.batName, [], {
@@ -192,9 +192,23 @@ export function apply(ctx: Context, config: Config) {
         return '服务器都没开你关什么……'
       }
 
+      const currentPid = mcProcess.pid
       try {
         mcProcess.stdin?.write('stop\n')
-        return 'stop指令发过去了，关不关的掉听天由命吧~'
+        session.send('stop指令发过去了，关不关的掉听天由命吧~')
+        await sleep(10000)
+        if (mcProcess) {
+          session.send('stop无法正常关闭，强制处决中......')
+          exec(`taskkill /pid ${currentPid} /T /F`, (error, stdout, stderr) => {
+            if (error) {
+              logger.error(`杀死服务端进程失败: ${error.message}`)
+              session.send(`处决失败！系统返回错误：${error.message}`)
+            } else {
+              logger.info('已执行 taskkill，等待进程树清理……')
+            }
+          })
+        }
+        return
       } catch (e) {
         logger.error(e)
         return '停止指令发送失败: ' + e.message
@@ -229,8 +243,8 @@ export function apply(ctx: Context, config: Config) {
         }
         const output = captureBuffer.join('\n')
         return output.length > 300 ? output.substring(0, 300) + '\n...（消息过长，已截断）' : output
-      } catch (e) {                               // 停止捕获输出  
-        isCapturing = false
+      } catch (e) {
+        isCapturing = false                       // 停止捕获输出
         logger.error(e)
         return '命令发送失败: ' + e.message
       }
