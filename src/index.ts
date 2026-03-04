@@ -24,6 +24,8 @@ export interface Config {
   adminIds: string[]
   runtime: 'windows' | 'linux'
   encoding: 'utf-8' | 'gbk'
+  injectMcChatToKoishi: boolean
+  injectTargetGroup: string
   commands: CommandConfig
 }
 
@@ -45,6 +47,8 @@ export const Config: Schema<Config> = Schema.object({
   allowedGroups: Schema.array(String).default([]).description('允许控制的群组'),
   adminIds: Schema.array(String).description('允许控制的用户账号').required(),
   encoding: Schema.union(['utf-8', 'gbk']).default('utf-8').description('服务端日志编码'),
+  injectMcChatToKoishi: Schema.boolean().default(false).description('将MC玩家聊天注入到Koishi消息处理链'),
+  injectTargetGroup: Schema.string().default('').description('注入目标群组ID（留空则使用allowedGroups）'),
   commands: CommandConfigSchema.required(),
 }).description('注意：重载配置会导致服务器进程 PID 丢失，重载配置前，请先停止服务器进程！')
 
@@ -119,6 +123,73 @@ export function apply(ctx: Context, config: Config) {
           await bot.sendMessage(groupId, message)
         } catch (e) {
           logger.warn(`转发消息到群组 ${groupId} 失败: ${e.message}`)
+        }
+      }
+    }
+  }
+
+  // 将MC聊天注入到Koishi消息处理链
+  const injectMcChatToKoishi = async (player: string, message: string) => {
+    if (!config.injectMcChatToKoishi) return
+    const content = message?.trim()
+    if (!content) return
+
+    const targetGroups = config.injectTargetGroup
+      ? [config.injectTargetGroup]
+      : config.allowedGroups
+
+    if (!targetGroups.length) {
+      logger.warn('MC聊天注入已开启，但没有可用的目标群组（injectTargetGroup / allowedGroups）')
+      return
+    }
+
+    for (const bot of ctx.bots) {
+      for (const groupId of targetGroups) {
+        try {
+          const safePlayer = player.replace(/[^\w\u4e00-\u9fa5-]/g, '_')
+          const userId = `mc_${safePlayer}`
+          const now = Date.now()
+          const session = bot.session() as any
+
+          session.type = 'message'
+          session.subtype = 'group'
+          session.platform = bot.platform
+          session.selfId = bot.selfId
+          session.userId = userId
+          session.channelId = groupId
+          session.guildId = groupId
+          session.content = content
+          session.messageId = `mc-${now}-${Math.random().toString(36).slice(2, 8)}`
+          session.timestamp = now
+          session.isDirect = false
+
+          session.author = {
+            id: userId,
+            name: `MC-${player}`,
+            username: `MC-${player}`,
+            nickname: player,
+          }
+
+          session.event ??= {}
+          session.event.user = {
+            id: userId,
+            name: `MC-${player}`,
+          }
+          session.event.channel = {
+            id: groupId,
+            type: 0,
+          }
+          session.event.message = {
+            id: session.messageId,
+            content,
+            user: session.event.user,
+            channel: session.event.channel,
+            timestamp: now,
+          }
+
+          await session.execute(content)
+        } catch (e) {
+          logger.warn(`注入MC聊天到Koishi失败（${groupId}）: ${e.message}`)
         }
       }
     }
@@ -202,6 +273,7 @@ export function apply(ctx: Context, config: Config) {
               if (chat) {
                 const msg = `[MC] ${chat.player}: ${chat.message}`
                 broadcastToGroup(msg)
+                injectMcChatToKoishi(chat.player, chat.message)
               }
             } else {
               const cleanContent = cleanLog(rawLog)
