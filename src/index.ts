@@ -56,11 +56,46 @@ export function apply(ctx: Context, config: PluginConfig) {
 
   const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
+  // 会话访问级别：full 可执行全部命令，limited 仅可执行 say / list。
+  type AccessLevel = 'full' | 'limited' | 'none'
+
   // 统一替换可配置文案中的占位符，供广播内容和命令返回消息复用。
   const formatTemplate = (template: string, params: Record<string, string | number>) => {
     return template.replace(/\{(\w+)\}/g, (_, key: string) => {
       return params[key] === undefined ? `{${key}}` : String(params[key])
     })
+  }
+
+  // 提取当前会话对应的群组ID，私聊场景下为空字符串。
+  const getTargetGroupId = (session: any) => session.guildId || session.channelId || ''
+
+  // 汇总所有受管群组，用于广播与默认注入目标。
+  const getManagedGroups = () => {
+    return Array.from(new Set([...config.trustGroups, ...config.untrustGroups].filter(Boolean)))
+  }
+
+  // 获取MC聊天注入目标群；未显式配置时回落到全部受管群。
+  const getInjectTargetGroups = () => {
+    return config.injectTargetGroups.length ? Array.from(new Set(config.injectTargetGroups.filter(Boolean))) : getManagedGroups()
+  }
+
+  // 计算当前会话的权限级别：admin 用户或 trust 群拥有 full 权限。
+  const getAccessLevel = (session: any): AccessLevel => {
+    const targetGroupId = getTargetGroupId(session)
+    const isAdminUser = config.adminIds.includes(session.userId)
+    const isTrustGroup = targetGroupId ? config.trustGroups.includes(targetGroupId) : false
+    const isUntrustGroup = targetGroupId ? config.untrustGroups.includes(targetGroupId) : false
+
+    if (isAdminUser || isTrustGroup) return 'full'
+    if (isUntrustGroup) return 'limited'
+    return 'none'
+  }
+
+  // 统一校验命令所需权限等级。
+  const hasPermission = (session: any, required: Exclude<AccessLevel, 'none'>) => {
+    const level = getAccessLevel(session)
+    if (required === 'limited') return level === 'limited' || level === 'full'
+    return level === 'full'
   }
 
   // 统一判断当前托管中的子进程是否仍然可用，避免仅凭对象存在就误判为运行中。
@@ -187,23 +222,23 @@ export function apply(ctx: Context, config: PluginConfig) {
     detachProcessListeners()
   })
 
-  // 监听群消息，提取云端LLM触发的控制台指令
+  // 监听消息，提取受信任群内 bot 发送的 LLM 控制台指令。
   ctx.on('message', async (session: any) => {
     const mcProcess = runtime.child
     if (!isProcessAlive(mcProcess) || !config.llmPrefix) return
 
-    const targetGroupId = session.guildId || session.channelId
+    const targetGroupId = getTargetGroupId(session)
     const userId = session.userId
     const content = session?.content
 
     logger.info(`[LLM-HOOK] recv user=${userId} guild=${session.guildId} channel=${session.channelId} content=${content}`)
 
-    if (config.allowedGroups.length > 0 && targetGroupId && !config.allowedGroups.includes(targetGroupId)) {
-      logger.info(`[LLM-HOOK] blocked by allowedGroups, target=${targetGroupId}`)
+    if (!targetGroupId || !config.trustGroups.includes(targetGroupId)) {
+      logger.info(`[LLM-HOOK] blocked by trustGroups, target=${targetGroupId || 'private'}`)
       return
     }
 
-    const isAllowedUser = config.llmBotIds.includes(userId) || config.adminIds.includes(userId)
+    const isAllowedUser = config.llmBotIds.includes(userId)
     if (!isAllowedUser) {
       logger.info(`[LLM-HOOK] blocked by identity, user=${userId}`)
       return
@@ -287,10 +322,11 @@ export function apply(ctx: Context, config: PluginConfig) {
     return null
   }
 
-  // 聊天信息广播
+  // 将MC聊天广播到全部受管群。
   const broadcastToGroup = async (message: string) => {
+    const targetGroups = getManagedGroups()
     for (const bot of ctx.bots) {
-      for (const groupId of config.allowedGroups) {
+      for (const groupId of targetGroups) {
         try {
           await bot.sendMessage(groupId, message)
         } catch (e) {
@@ -300,18 +336,16 @@ export function apply(ctx: Context, config: PluginConfig) {
     }
   }
 
-  // 将MC聊天注入到Koishi消息处理链
+  // 将MC聊天注入到指定群组对应的Koishi消息处理链。
   const injectMcChatToKoishi = async (player: string, message: string) => {
     if (!config.injectMcChatToKoishi) return
     const content = message?.trim()
     if (!content) return
 
-    const targetGroups = config.injectTargetGroup
-      ? [config.injectTargetGroup]
-      : config.allowedGroups
+    const targetGroups = getInjectTargetGroups()
 
     if (!targetGroups.length) {
-      logger.warn('MC聊天注入已开启，但没有可用的目标群组（injectTargetGroup / allowedGroups）')
+      logger.warn('MC聊天注入已开启，但没有可用的目标群组（injectTargetGroups / trustGroups / untrustGroups）')
       return
     }
 
@@ -367,18 +401,11 @@ export function apply(ctx: Context, config: PluginConfig) {
     }
   }
 
-  // 权限检查
-  const checkPermission = (session: any) => {
-    const isGroupAllowed = config.allowedGroups.includes(session.guildId)
-    const isUserAllowed = config.adminIds.includes(session.userId)
-    return isGroupAllowed || isUserAllowed
-  }
-
   // 指令：指定服务端
   ctx.command(`${config.commands.setServer} <name:string>`, '指定当前操作的服务端')
     .action(async ({ session }, name) => {
       // 权限检查
-      if (!checkPermission(session)) return config.responses.common.noControlPermission
+      if (!hasPermission(session, 'full')) return config.responses.common.noControlPermission
 
       // 状态检查
       if (isProcessAlive()) return config.responses.setServer.runningBlocked
@@ -409,7 +436,7 @@ export function apply(ctx: Context, config: PluginConfig) {
   ctx.command(config.commands.startServer, '启动MC服务器')
     .action(async ({ session }) => {
       // 权限检查
-      if (!checkPermission(session)) return config.responses.common.noControlPermission
+      if (!hasPermission(session, 'full')) return config.responses.common.noControlPermission
 
       // 状态检查
       if (isProcessAlive()) {
@@ -486,7 +513,7 @@ export function apply(ctx: Context, config: PluginConfig) {
   ctx.command(config.commands.stopServer, '关闭MC服务器')
     .action(async ({ session }) => {
       // 权限校验
-      if (!checkPermission(session)) return config.responses.common.noControlPermission
+      if (!hasPermission(session, 'full')) return config.responses.common.noControlPermission
 
       // 状态检查
       const mcProcess = runtime.child
@@ -530,7 +557,7 @@ export function apply(ctx: Context, config: PluginConfig) {
   ctx.command(`${config.commands.sudo} <command:text>`, '向服务器发送控制台命令')
     .action(async ({ session }, command) => {
       // 权限校验
-      if (!checkPermission(session)) return config.responses.common.noControlPermission
+      if (!hasPermission(session, 'full')) return config.responses.common.noControlPermission
 
       // 状态检查
       const mcProcess = runtime.child
@@ -572,7 +599,7 @@ export function apply(ctx: Context, config: PluginConfig) {
   ctx.command(`${config.commands.say} <content:text>`, '向服务器发送信息')
     .action(async ({ session }, content) => {
       // 权限校验
-      if (!checkPermission(session)) return config.responses.say.noPermission
+      if (!hasPermission(session, 'limited')) return config.responses.say.noPermission
 
       // 状态检查
       const mcProcess = runtime.child
@@ -595,7 +622,7 @@ export function apply(ctx: Context, config: PluginConfig) {
   ctx.command(config.commands.list, '查询服务器在线玩家')
     .action(async ({ session }) => {
       // 权限校验
-      if (!checkPermission(session)) return config.responses.common.noControlPermission
+      if (!hasPermission(session, 'limited')) return config.responses.common.noControlPermission
 
       // 状态检查
       const mcProcess = runtime.child
@@ -630,7 +657,7 @@ export function apply(ctx: Context, config: PluginConfig) {
   ctx.command(config.commands.killServer, '强制杀死服务器进程')
     .action(async ({ session }) => {
       // 权限校验
-      if (!checkPermission(session)) return config.responses.common.noControlPermission
+      if (!hasPermission(session, 'full')) return config.responses.common.noControlPermission
 
       // 状态检查
       const mcProcess = runtime.child

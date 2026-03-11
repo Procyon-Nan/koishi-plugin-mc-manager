@@ -86,16 +86,17 @@ export interface ResponseConfig {
   killServer: KillServerResponseConfig
 }
 
-// 插件主配置：包含服务端路径、权限、广播文案、命令回复消息和指令触发词。
+// 插件主配置：包含服务端路径、权限分层、广播文案、命令回复消息和指令触发词。
 export interface Config {
   serverPaths: Record<string, string>
   batName: string
-  allowedGroups: string[]
+  trustGroups: string[]
+  untrustGroups: string[]
   adminIds: string[]
   runtime: 'windows' | 'linux'
   encoding: 'utf-8' | 'gbk'
   injectMcChatToKoishi: boolean
-  injectTargetGroup: string
+  injectTargetGroups: string[]
   llmPrefix: string
   llmBotIds: string[]
   commands: CommandConfig
@@ -170,11 +171,12 @@ export const Config: Schema<Config> = Schema.object({
   runtime: Schema.union(['windows', 'linux']).default('windows').description('运行环境'),
   serverPaths: Schema.dict(String).role('table').description('服务端名称与目录（绝对路径）').required(),
   batName: Schema.string().description('启动脚本名称').required(),
-  allowedGroups: Schema.array(String).default([]).description('允许控制的群组'),
+  trustGroups: Schema.array(String).default([]).description('受信任群组（拥有全部指令权限）'),
+  untrustGroups: Schema.array(String).default([]).description('非受信任群组（仅允许 say / list）'),
   adminIds: Schema.array(String).description('允许控制的用户账号').required(),
   encoding: Schema.union(['utf-8', 'gbk']).default('utf-8').description('服务端日志编码'),
   injectMcChatToKoishi: Schema.boolean().default(false).description('将MC玩家聊天注入到Koishi消息处理链'),
-  injectTargetGroup: Schema.string().default('').description('注入目标群组ID（留空则使用allowedGroups）'),
+  injectTargetGroups: Schema.array(String).default([]).description('注入目标群组ID列表（留空则使用 trustGroups + untrustGroups）'),
   llmPrefix: Schema.string().default('执行/').description('LLM触发前缀（匹配到后将其后内容发送到服务端控制台）'),
   llmBotIds: Schema.array(String).default([]).description('允许触发后台指令的云端机器人账号ID'),
   commands: CommandConfigSchema.required(),
